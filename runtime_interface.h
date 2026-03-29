@@ -35,7 +35,7 @@ struct BoundedVector {
     size_t size() const { return data.size(); }
     bool empty() { return data.empty(); }
     std::vector<T>::iterator begin(){ return data.begin(); }
-    std::vector<T>::iterator end(){ return data.begin(); }
+    std::vector<T>::iterator end(){ return data.end(); }
     T& at(size_t size){ return data.at(size); }
 };
 using Stack=BoundedVector<Value>;
@@ -56,3 +56,4 @@ struct NativeEntry {
     ValueType retType;
 };
 using Registrar=void(*)(std::string name, std::vector<ValueType> argTypes, ValueType retType, NativeSig fn);
+void registerNative(std::string name, std::vector<ValueType> argTypes, ValueType retType, NativeSig fn);

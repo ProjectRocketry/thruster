@@ -14,6 +14,7 @@
 #include <concepts>
 #include "runtime_interface.h"
 #include <iostream>
+#include "natives.h"
 size_t MAX_RECURSION=0xFFFF;
 size_t MAX_STACK_SIZE=0xFFFF;
 size_t depth=0;
@@ -119,7 +120,7 @@ std::vector<Value> resolveArgsForCall(std::vector<ValueType>& argTypes, FNctx& c
         if (top.type==ValueType::Null){
             temp.push_back(top);
             i++;
-        } else if (top.type!=argtype) {
+        } else if (top.type!=argtype && argtype!=ValueType::Any) {
             throw ExecutionError(ctx.id,"Stack top has type "+ValueTypeAsString.at(top.type)+", expected type "+ValueTypeAsString.at(argtype)+".");
         } else {
             ret.push_back(top);
@@ -338,7 +339,7 @@ Value coerce(const Value& arg, ValueType target, uint64_t id){
     }
     return arg;
 }
-std::unordered_map<uint64_t,NativeEntry> callnatives;
+std::unordered_map<uint64_t,NativeEntry> callnatives={};
 uint64_t hash64(const std::string& s) {
     uint64_t h = 1469598103934665603ull;
     for (unsigned char c : s) {
@@ -354,10 +355,6 @@ void registerNative(std::string name, std::vector<ValueType> argTypes, ValueType
     entry.fn=fn;
     callnatives[hash64(name)]=entry;
 }
-Value native_printstr(const std::vector<Value>& args,const FNctx& ctx){
-
-}
-void registerNative("printstr",{ValueType::String},ValueType::Null)
 /* Handlers */
 void LoadInt(const LinkedInstruction& instr, FNctx& ctx){
     int64_t i=std::bit_cast<int64_t>(instr.operand);
@@ -731,7 +728,6 @@ Value executeFunction(uint64_t id, std::vector<Value> args, std::map<uint64_t,Li
     FNctx ctx{func,stack,args,functions,stringTable,i,{},id};
     while (ctx.pc<func.function.code.size()){
         LinkedInstruction instr=func.function.code[ctx.pc];
-        std::cout << "opcode raw = " << (int)instr.opcode << "\n";
         switch (static_cast<Opcode>(instr.opcode)){
 #define GENERATE_CASE(OP, CODE, STR, OPERAND, UNUSED1, UNUSED2, RET) \
             case Opcode::OP: { \
@@ -784,6 +780,7 @@ void executePropellant(PropellantLoadData& data, std::span<std::string>& args, b
     } else {
         deserialized=deserialize(propAndTrailing,true);
     }
+    initNatives();
     if (std::holds_alternative<StrippedPropellant>(deserialized)){
         StrippedPropellant prop=std::get<StrippedPropellant>(deserialized);
         executeStripped(prop,args);

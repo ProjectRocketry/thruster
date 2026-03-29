@@ -1,8 +1,8 @@
-FILES=main.cpp filereader.cpp propellant.cpp ../libpropfile/libpropfile.a
+FILES=main.cpp filereader.cpp propellant.cpp ../libpropfile/libpropfile.a natives.cpp
 all: linux
 linux: clean
 	make -C ../libpropfile
-	g++ -g $(FILES) platforms/linux.cpp -std=c++20 -Wall -Werror -o out/thruster
+	g++ -g $(FILES) platforms/linux.cpp -std=c++20 -Wall -Werror -o out/thruster -fsanitize=address -fno-omit-frame-pointer -g
 windows: clean
 	x86_64-w64-mingw32-g++ $(FILES) platforms/windows.cpp -Wall -Werror -o out/thruster.exe
 macos: clean

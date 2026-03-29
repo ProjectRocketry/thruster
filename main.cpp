@@ -118,6 +118,7 @@ void patch_self(PatchOpts& opts){
     set_pptr(outRW,offset);
     set_flags(outRW,opts.flags);
     outRW.close();
+    std::cout << "patched, output is" << outputPath.string() << std::endl;
 }
 bool hasFlag(uint64_t flag){
     return (FLAGS & flag) != 0;
@@ -137,7 +138,11 @@ void executePropellantWrapper(PropellantLoadData& data, std::span<std::string> a
     try {
         executePropellant(data,args,useDebugSyms);
     } catch (const ExecutionError& e){
-        PRETTY_ERROR(1,std::format("Error during execution of function {}: {}",e.func_id,e.message));
+        if (e.func_id==0xffffffffffffffff){
+            PRETTY_ERROR(1,std::format("Error during execution of entry function: {}",e.message));
+        } else {
+            PRETTY_ERROR(1,std::format("Error during execution of function {}: {}",e.func_id,e.message));
+        }
     } catch (std::runtime_error& e){
         PRETTY_ERROR(1,e.what());
     }
@@ -181,6 +186,8 @@ int main(int argc,char** argv){
             }
             opts.flags = parsedFlags;
         }
+        patch_self(opts);
+
     }
     if (PPTR!=orig_PPTR){
         PropellantLoadData execData;
