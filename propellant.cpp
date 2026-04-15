@@ -42,15 +42,15 @@ concept Numeric = std::same_as<T, int64_t> ||
                   std::same_as<T, uint64_t> || 
                   std::same_as<T, double>;
 template <typename T>
-T getVariantOrThrow(const Value& arg, uint64_t id){
+T getVariantOrThrow(const Value& arg){
     try {
         return std::get<T>(arg.value);
     } catch (std::bad_variant_access& e){
-        throw ExecutionError(id, "Tried to access variant: Stack top has type "+ValueTypeAsString.at(arg.type)+", expected type "+ValueTypeAsString.at(static_cast<ValueType>(arg.value.index()))+".");
+        throw ExecError("Tried to access variant: Stack top has type "+ValueTypeAsString.at(arg.type)+", expected type "+ValueTypeAsString.at(static_cast<ValueType>(arg.value.index()))+".");
     }
 }
 template <Numeric T, Numeric N>
-T castIfInLimit(N number, uint64_t id){
+T castIfInLimit(N number){
     using TL = std::numeric_limits<T>;
     bool isSafe;
     if constexpr (std::is_floating_point_v<T> || std::is_floating_point_v<N>) {
@@ -75,11 +75,11 @@ T castIfInLimit(N number, uint64_t id){
         isSafe = number <= static_cast<U>(TL::max());
     }
     if (!isSafe)
-        throw ExecutionError(id, "Number went out of bounds.");
+        throw ExecError("Number went out of bounds.");
     return static_cast<T>(number);
 }
 template <Numeric T>
-T parseString(const std::string& str, uint64_t id){
+T parseString(const std::string& str){
     try {
         if constexpr (std::same_as<T, int64_t>) {
             size_t pos;
@@ -108,7 +108,7 @@ T parseString(const std::string& str, uint64_t id){
             return val;
         }
     } catch (...) {
-        throw ExecutionError(id, std::format("Could not convert string {} to number", str));
+        throw ExecError(std::format("Could not convert string {} to number", str));
     }
 }
 std::vector<Value> resolveArgsForCall(std::vector<ValueType>& argTypes, FNctx& ctx){
@@ -119,10 +119,10 @@ std::vector<Value> resolveArgsForCall(std::vector<ValueType>& argTypes, FNctx& c
         Value top=pop(ctx.stack);
         if (argtype==ValueType::Null){
             temp.push_back(top);
-            ret.push_back(Value{ValueType::Null,std::monostate{}});//pushes a null to adjust arg indexes
+            ret.push_back(Value{ValueType::Null,Null{}});//pushes a null to adjust arg indexes
             i++;
         } else if (top.type!=argtype && argtype!=ValueType::Any) {
-            throw ExecutionError(ctx.id,"Stack top has type "+ValueTypeAsString.at(top.type)+", expected type "+ValueTypeAsString.at(argtype)+".");
+            throw ExecError("Stack top has type "+ValueTypeAsString.at(top.type)+", expected type "+ValueTypeAsString.at(argtype)+".");
         } else {
             ret.push_back(top);
         }
@@ -144,8 +144,8 @@ Value mkValue(T t){
 bool isNumberValueType(ValueType v){
     return (v == ValueType::Int || v == ValueType::UInt || v == ValueType::Float);
 }
-Value coerce(const Value& arg, ValueType target, uint64_t ctx);
-std::pair<Value,Value> promote(Value& a1,Value& a2, uint64_t id){
+Value coerce(const Value& arg, ValueType target);
+std::pair<Value,Value> promote(Value& a1, Value& a2){
     ValueType coerceTarget;
     if (a1.type==ValueType::Float||a2.type==ValueType::Float){
         coerceTarget=ValueType::Float;
@@ -154,8 +154,8 @@ std::pair<Value,Value> promote(Value& a1,Value& a2, uint64_t id){
     } else {
         coerceTarget=ValueType::Int;
     }
-    Value b1=coerce(a1,coerceTarget,id);
-    Value b2=coerce(a2,coerceTarget,id);
+    Value b1=coerce(a1,coerceTarget);
+    Value b2=coerce(a2,coerceTarget);
     return {b1,b2};
 }
 bool valuesEqual(Value& a1, Value& a2, uint64_t id){
@@ -165,15 +165,15 @@ bool valuesEqual(Value& a1, Value& a2, uint64_t id){
         }
     if (a1.type!=a2.type){
         if (isNumberValueType(a1.type) && isNumberValueType(a2.type)){//isNumberValueType is true if Int,UInt, or Float
-            normalized=promote(a1,a2,id);
+            normalized=promote(a1,a2);
         } else if (a1.type == ValueType::String || a2.type == ValueType::String){
-            normalized={coerce(a1,ValueType::String,id),coerce(a2,ValueType::String,id)};
+            normalized={coerce(a1,ValueType::String),coerce(a2,ValueType::String)};
         } else if (a1.type==ValueType::Bool && isNumberValueType(a2.type)){
-            Value num=coerce(a1,ValueType::UInt,id);
-            normalized=promote(num,a2,id);
+            Value num=coerce(a1,ValueType::UInt);
+            normalized=promote(num,a2);
         } else if (isNumberValueType(a1.type) && a2.type==ValueType::Bool){
-            Value num=coerce(a2,ValueType::UInt,id);
-            normalized=promote(a1,num,id);
+            Value num=coerce(a2,ValueType::UInt);
+            normalized=promote(a1,num);
         }
     } else {
         normalized={a1,a2};
@@ -181,19 +181,19 @@ bool valuesEqual(Value& a1, Value& a2, uint64_t id){
     bool retval;
     switch (normalized.first.type){
         case ValueType::Float:
-            retval=getVariantOrThrow<double>(normalized.first,id)==getVariantOrThrow<double>(normalized.second,id);
+            retval=getVariantOrThrow<double>(normalized.first)==getVariantOrThrow<double>(normalized.second);
             break;
         case ValueType::Int:
-            retval=getVariantOrThrow<int64_t>(normalized.first,id)==getVariantOrThrow<int64_t>(normalized.second,id);
+            retval=getVariantOrThrow<int64_t>(normalized.first)==getVariantOrThrow<int64_t>(normalized.second);
             break;
         case ValueType::UInt:
-            retval=getVariantOrThrow<uint64_t>(normalized.first,id)==getVariantOrThrow<uint64_t>(normalized.second,id);
+            retval=getVariantOrThrow<uint64_t>(normalized.first)==getVariantOrThrow<uint64_t>(normalized.second);
             break;
         case ValueType::String:
-            retval=getVariantOrThrow<std::string>(normalized.first,id)==getVariantOrThrow<std::string>(normalized.second,id);
+            retval=getVariantOrThrow<std::string>(normalized.first)==getVariantOrThrow<std::string>(normalized.second);
             break;
         case ValueType::Bool:
-            retval=getVariantOrThrow<bool>(normalized.first,id)==getVariantOrThrow<bool>(normalized.second,id);
+            retval=getVariantOrThrow<bool>(normalized.first)==getVariantOrThrow<bool>(normalized.second);
             break;
         default:
             retval=false;
@@ -205,10 +205,10 @@ void jumpTo(uint64_t label, FNctx& ctx){
     try {
         ctx.pc=ctx.func.labelOffsets.at(label)-1;//to account for the ctx.pc++ at the end of the loop
     } catch (std::out_of_range& e){
-        throw ExecutionError(ctx.id,"Label not found");
+        throw ExecError("Label not found");
     }
 }
-Value coerce(const Value& arg, ValueType target, uint64_t id){
+Value coerce(const Value& arg, ValueType target){
     if (arg.type==target) return arg;
     switch (target){
         case ValueType::Null:
@@ -216,16 +216,16 @@ Value coerce(const Value& arg, ValueType target, uint64_t id){
         case ValueType::Bool: {
             switch (arg.type){
                 case ValueType::Int: {
-                    return mkValue(getVariantOrThrow<int64_t>(arg,id)!=0);
+                    return mkValue(getVariantOrThrow<int64_t>(arg)!=0);
                 }
                 case ValueType::UInt: {
-                    return mkValue(getVariantOrThrow<uint64_t>(arg,id)!=0);
+                    return mkValue(getVariantOrThrow<uint64_t>(arg)!=0);
                 }
                 case ValueType::Float: {
-                    return mkValue(getVariantOrThrow<double>(arg,id)!=0);
+                    return mkValue(getVariantOrThrow<double>(arg)!=0);
                 }
                 case ValueType::String: {
-                    std::string item=getVariantOrThrow<std::string>(arg,id);
+                    std::string item=getVariantOrThrow<std::string>(arg);
                     bool retval;
                     if (item=="true"){
                         retval=true;
@@ -240,103 +240,103 @@ Value coerce(const Value& arg, ValueType target, uint64_t id){
                 }
                 case ValueType::Null: {
                     return mkValue(false);
-                } 
+                }
                 default:
-                    throw ExecutionError(id, "Invalid coercion");
+                    throw ExecError("Invalid coercion");
             }
             break;
         }
         case ValueType::Int: {
             switch (arg.type){
                 case ValueType::Bool: {
-                    return mkValue(getVariantOrThrow<bool>(arg,id)?1ll:0ll);
+                    return mkValue(getVariantOrThrow<bool>(arg)?1ll:0ll);
                     break;
                 }
                 case ValueType::UInt: {
-                    return mkValue(castIfInLimit<int64_t>(getVariantOrThrow<uint64_t>(arg,id),id));
+                    return mkValue(castIfInLimit<int64_t>(getVariantOrThrow<uint64_t>(arg)));
                 }
                 case ValueType::Float: {
-                    return mkValue(castIfInLimit<int64_t>(getVariantOrThrow<double>(arg,id),id));
+                    return mkValue(castIfInLimit<int64_t>(getVariantOrThrow<double>(arg)));
                 }
                 case ValueType::String: {
-                    return mkValue(parseString<int64_t>(getVariantOrThrow<std::string>(arg,id),id));
+                    return mkValue(parseString<int64_t>(getVariantOrThrow<std::string>(arg)));
                 }
                 case ValueType::Null: {
                     return mkValue(0ll);
-                } 
+                }
                 default:
-                    throw ExecutionError(id, "Invalid coercion");
+                    throw ExecError("Invalid coercion");
             }
             break;
         }
         case ValueType::UInt: {
             switch (arg.type){
                 case ValueType::Bool: {
-                    return mkValue(getVariantOrThrow<bool>(arg,id)?1ull:0ull);
+                    return mkValue(getVariantOrThrow<bool>(arg)?1ull:0ull);
                 }
                 case ValueType::Int: {
-                    return mkValue(castIfInLimit<uint64_t>(getVariantOrThrow<int64_t>(arg,id),id));
+                    return mkValue(castIfInLimit<uint64_t>(getVariantOrThrow<int64_t>(arg)));
                 }
                 case ValueType::Float: {
-                    return mkValue(castIfInLimit<uint64_t>(getVariantOrThrow<double>(arg,id),id));
+                    return mkValue(castIfInLimit<uint64_t>(getVariantOrThrow<double>(arg)));
                 }
                 case ValueType::String: {
-                    return mkValue(parseString<uint64_t>(getVariantOrThrow<std::string>(arg,id),id));
+                    return mkValue(parseString<uint64_t>(getVariantOrThrow<std::string>(arg)));
                 }
                 case ValueType::Null: {
                     return mkValue(0ull);
-                } 
+                }
                 default:
-                    throw ExecutionError(id, "Invalid coercion");
+                    throw ExecError("Invalid coercion");
             }
             break;
         }
         case ValueType::Float: {
             switch (arg.type){
                 case ValueType::Bool: {
-                    return mkValue(getVariantOrThrow<bool>(arg,id)?1.0:0.0);
+                    return mkValue(getVariantOrThrow<bool>(arg)?1.0:0.0);
                 }
                 case ValueType::Int: {
-                    return mkValue(castIfInLimit<double>(getVariantOrThrow<int64_t>(arg,id),id));
+                    return mkValue(castIfInLimit<double>(getVariantOrThrow<int64_t>(arg)));
                 }
                 case ValueType::UInt: {
-                    return mkValue(castIfInLimit<double>(getVariantOrThrow<uint64_t>(arg,id),id));
+                    return mkValue(castIfInLimit<double>(getVariantOrThrow<uint64_t>(arg)));
                 }
                 case ValueType::String: {
-                    return mkValue(parseString<double>(getVariantOrThrow<std::string>(arg,id),id));
+                    return mkValue(parseString<double>(getVariantOrThrow<std::string>(arg)));
                 }
                 case ValueType::Null: {
                     return mkValue(0.0);
                 }
                 default:
-                    throw ExecutionError(id, "Invalid coercion");
+                    throw ExecError("Invalid coercion");
             }
             break;
         }
         case ValueType::String: {
             switch (arg.type){
                 case ValueType::Bool: {
-                    return mkValue(getVariantOrThrow<bool>(arg,id)?"true":"false");
+                    return mkValue(getVariantOrThrow<bool>(arg)?"true":"false");
                 }
                 case ValueType::Int: {
-                    return mkValue(std::to_string(getVariantOrThrow<int64_t>(arg,id)));
+                    return mkValue(std::to_string(getVariantOrThrow<int64_t>(arg)));
                 }
                 case ValueType::UInt: {
-                    return mkValue(std::to_string(getVariantOrThrow<uint64_t>(arg,id)));
+                    return mkValue(std::to_string(getVariantOrThrow<uint64_t>(arg)));
                 }
                 case ValueType::Float: {
-                    return mkValue(std::to_string(getVariantOrThrow<double>(arg,id)));
+                    return mkValue(std::to_string(getVariantOrThrow<double>(arg)));
                 }
                 case ValueType::Null: {
                     return mkValue("null");
-                } 
+                }
                 default:
-                    throw ExecutionError(id, "Invalid coercion");
+                    throw ExecError("Invalid coercion");
             }
             break;
         }
         default:
-            throw ExecutionError(id, "Invalid coercion");
+            throw ExecError("Cannot convert to type "+std::format("{:#x}",static_cast<int>(target)));
     }
     return arg;
 }
@@ -358,7 +358,7 @@ void registerNative(std::string name, std::vector<ValueType> argTypes, ValueType
 }
 /* Handlers */
 void LoadInt(const LinkedInstruction& instr, FNctx& ctx){
-    int64_t i=std::bit_cast<int64_t>(instr.operand);
+    auto i=std::bit_cast<int64_t>(instr.operand);
     ctx.stack.push_back(mkValue(i));
     return;
 }
@@ -367,7 +367,7 @@ void LoadString(const LinkedInstruction& instr, FNctx& ctx){
     return;
 }
 void LoadFloat(const LinkedInstruction& instr, FNctx& ctx){
-    double f=std::bit_cast<double>(instr.operand);
+    auto f=std::bit_cast<double>(instr.operand);
     ctx.stack.push_back(mkValue(f));
     return;
 }
@@ -407,50 +407,50 @@ void Incr(const LinkedInstruction& instr, FNctx& ctx){
     Value& var=ctx.vars.at(instr.operand);
     switch (var.type){
         case ValueType::Int: {
-            int64_t num=getVariantOrThrow<int64_t>(var,ctx.id);
+            auto num=getVariantOrThrow<int64_t>(var);
             num++;
             ctx.vars[instr.operand]=mkValue(num);
             return;
         }
         case ValueType::UInt: {
-            uint64_t num=getVariantOrThrow<uint64_t>(var,ctx.id);
+            auto num=getVariantOrThrow<uint64_t>(var);
             num++;
             ctx.vars[instr.operand]=mkValue(num);
             return;
         }
         case ValueType::Float: {
-            double num=getVariantOrThrow<double>(var,ctx.id);
+            auto num=getVariantOrThrow<double>(var);
             num++;
             ctx.vars[instr.operand]=mkValue(num);
             return;
         }
         default:
-            throw ExecutionError(ctx.id,"Tried to increment a non-numeric variable");
+            throw ExecError("Tried to increment a non-numeric variable");
     }
 }
 void Decr(const LinkedInstruction& instr, FNctx& ctx){
     Value& var=ctx.vars.at(instr.operand);
     switch (var.type){
         case ValueType::Int: {
-            int64_t num=getVariantOrThrow<int64_t>(var,ctx.id);
+            auto num=getVariantOrThrow<int64_t>(var);
             num--;
             ctx.vars[instr.operand]=mkValue(num);
             break;
         }
         case ValueType::UInt: {
-            uint64_t num=getVariantOrThrow<uint64_t>(var,ctx.id);
+            auto num=getVariantOrThrow<uint64_t>(var);
             num--;
             ctx.vars[instr.operand]=mkValue(num);
             break;
         }
         case ValueType::Float: {
-            double num=getVariantOrThrow<double>(var,ctx.id);
+            double num=getVariantOrThrow<double>(var);
             num--;
             ctx.vars[instr.operand]=mkValue(num);
             break;
         }
         default:
-            throw ExecutionError(ctx.id,"Tried to decrement a non-numeric variable");
+            throw ExecError("Tried to decrement a non-numeric variable");
     }
     return;
 }
@@ -468,7 +468,7 @@ void Jump(const LinkedInstruction& instr, FNctx& ctx){
 }
 void JumpIfTrue(const LinkedInstruction& instr, FNctx& ctx){
     Value top=pop(ctx.stack);
-    bool topBool=getVariantOrThrow<bool>(top,ctx.id);
+    bool topBool=getVariantOrThrow<bool>(top);
     if (topBool){
         jumpTo(instr.operand,ctx);
     }
@@ -476,7 +476,7 @@ void JumpIfTrue(const LinkedInstruction& instr, FNctx& ctx){
 }
 void JumpIfFalse(const LinkedInstruction& instr, FNctx& ctx){
     Value top=pop(ctx.stack);
-    bool topBool=getVariantOrThrow<bool>(top,ctx.id);
+    bool topBool=getVariantOrThrow<bool>(top);
     if (!topBool){
         jumpTo(instr.operand,ctx);
     }
@@ -502,82 +502,82 @@ void CallNative(const LinkedInstruction& instr, FNctx& ctx){
 }
 Value Return(const LinkedInstruction& instr, FNctx& ctx){
     if (ctx.func.function.returnType==ValueType::Null){
-        if (!ctx.stack.empty()) throw ExecutionError(ctx.id, "Stack overflowed over return");
+        if (!ctx.stack.empty()) throw ExecError("Stack overflowed over return");
         return mkValue(std::monostate{});
     }
     Value top=pop(ctx.stack);
-    if (!ctx.stack.empty()) throw ExecutionError(ctx.id, "Stack overflowed over return");
-    if (top.type!=ctx.func.function.returnType) throw ExecutionError(ctx.id, "In 'return': Stack top has type "+ValueTypeAsString.at(top.type)+", expected type "+ValueTypeAsString.at(ctx.func.function.returnType)+".");
+    if (!ctx.stack.empty()) throw ExecError("Stack overflowed over return");
+    if (top.type!=ctx.func.function.returnType) throw ExecError("In 'return': Stack top has type "+ValueTypeAsString.at(top.type)+", expected type "+ValueTypeAsString.at(ctx.func.function.returnType)+".");
     depth--;
     return top;
 }
 [[noreturn]] void Exit(const LinkedInstruction& instr, FNctx& ctx){
     Value top=pop(ctx.stack);
-    int64_t exit_code=getVariantOrThrow<int64_t>(top,ctx.id);
+    int64_t exit_code=getVariantOrThrow<int64_t>(top);
     std::exit(exit_code);
 }
 #define NUMERIC_OP(OPERATION) \
 if (promoted.first.type==ValueType::Float){\
-    double result=getVariantOrThrow<double>(promoted.second,ctx.id) OPERATION getVariantOrThrow<double>(promoted.first,ctx.id);\
+    double result=getVariantOrThrow<double>(promoted.second) OPERATION getVariantOrThrow<double>(promoted.first);\
     ctx.stack.push_back(mkValue(result));\
 } else if (promoted.first.type==ValueType::Int){\
-    int64_t result=getVariantOrThrow<int64_t>(promoted.second,ctx.id) OPERATION getVariantOrThrow<int64_t>(promoted.first,ctx.id);\
+    int64_t result=getVariantOrThrow<int64_t>(promoted.second) OPERATION getVariantOrThrow<int64_t>(promoted.first);\
     ctx.stack.push_back(mkValue(result));\
 } else if (promoted.first.type==ValueType::UInt){\
-    uint64_t result=getVariantOrThrow<uint64_t>(promoted.second,ctx.id) OPERATION getVariantOrThrow<uint64_t>(promoted.first,ctx.id);\
+    uint64_t result=getVariantOrThrow<uint64_t>(promoted.second) OPERATION getVariantOrThrow<uint64_t>(promoted.first);\
     ctx.stack.push_back(mkValue(result));\
 }
 #define NUMERIC_CMP(OPERATION) \
 if (promoted.first.type==ValueType::Float){\
-    bool result=getVariantOrThrow<double>(promoted.second,ctx.id) OPERATION getVariantOrThrow<double>(promoted.first,ctx.id);\
+    bool result=getVariantOrThrow<double>(promoted.second) OPERATION getVariantOrThrow<double>(promoted.first);\
     ctx.stack.push_back(mkValue(result));\
 } else if (promoted.first.type==ValueType::Int){\
-    bool result=getVariantOrThrow<int64_t>(promoted.second,ctx.id) OPERATION getVariantOrThrow<int64_t>(promoted.first,ctx.id);\
+    bool result=getVariantOrThrow<int64_t>(promoted.second) OPERATION getVariantOrThrow<int64_t>(promoted.first);\
     ctx.stack.push_back(mkValue(result));\
 } else if (promoted.first.type==ValueType::UInt){\
-    bool result=getVariantOrThrow<uint64_t>(promoted.second,ctx.id) OPERATION getVariantOrThrow<uint64_t>(promoted.first,ctx.id);\
+    bool result=getVariantOrThrow<uint64_t>(promoted.second) OPERATION getVariantOrThrow<uint64_t>(promoted.first);\
     ctx.stack.push_back(mkValue(result));\
 }
 void Add(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_OP(+)
     return;
 }
 void Sub(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_OP(-)
     return;
 }
 void Mult(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_OP(*)
     return;
 }
 void Div(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_OP(/)
     return;
 }
 void Mod(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     if (promoted.first.type==ValueType::Float){
-        double result=std::fmod(getVariantOrThrow<double>(promoted.second,ctx.id),getVariantOrThrow<double>(promoted.first,ctx.id));
+        double result=std::fmod(getVariantOrThrow<double>(promoted.second),getVariantOrThrow<double>(promoted.first));
         ctx.stack.push_back(mkValue(result));
     } else if (promoted.first.type==ValueType::Int){
-        int64_t result=getVariantOrThrow<int64_t>(promoted.second,ctx.id)%getVariantOrThrow<int64_t>(promoted.first,ctx.id);
+        int64_t result=getVariantOrThrow<int64_t>(promoted.second)%getVariantOrThrow<int64_t>(promoted.first);
         ctx.stack.push_back(mkValue(result));
     } else if (promoted.first.type==ValueType::UInt){
-        uint64_t result=getVariantOrThrow<uint64_t>(promoted.second,ctx.id)%getVariantOrThrow<uint64_t>(promoted.first,ctx.id);
+        uint64_t result=getVariantOrThrow<uint64_t>(promoted.second)%getVariantOrThrow<uint64_t>(promoted.first);
         ctx.stack.push_back(mkValue(result));
     }
     return;
@@ -599,28 +599,28 @@ void Ne(const LinkedInstruction& instr, FNctx& ctx){
 void Lt(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_CMP(<)
     return;
 }
 void Le(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_CMP(<=)
     return;
 }
 void Gt(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_CMP(>)
     return;
 }
 void Ge(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    std::pair<Value,Value> promoted=promote(a1,a2,ctx.id);
+    std::pair<Value,Value> promoted=promote(a1,a2);
     NUMERIC_CMP(>=)
     return;
 }
@@ -628,7 +628,7 @@ void Not(const LinkedInstruction& instr, FNctx& ctx){
     Value a=pop(ctx.stack);
     switch (a.type){
         case ValueType::String: {
-            std::string item=getVariantOrThrow<std::string>(a,ctx.id);
+            auto item=getVariantOrThrow<std::string>(a);
             bool retval;
             if (item=="true"){
                 retval=true;
@@ -643,8 +643,8 @@ void Not(const LinkedInstruction& instr, FNctx& ctx){
             return;
         }
         default:
-            Value b=coerce(a,ValueType::Bool,ctx.id);
-            bool item=getVariantOrThrow<bool>(b,ctx.id);
+            Value b=coerce(a,ValueType::Bool);
+            bool item=getVariantOrThrow<bool>(b);
             ctx.stack.push_back(mkValue(!item));
             return;
     }
@@ -653,8 +653,8 @@ void Not(const LinkedInstruction& instr, FNctx& ctx){
 void And(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    bool v1=getVariantOrThrow<bool>(a1,ctx.id);
-    bool v2=getVariantOrThrow<bool>(a2,ctx.id);
+    bool v1=getVariantOrThrow<bool>(a1);
+    bool v2=getVariantOrThrow<bool>(a2);
     bool ret=v1&&v2;
     ctx.stack.push_back(mkValue(ret));
     return;
@@ -662,21 +662,21 @@ void And(const LinkedInstruction& instr, FNctx& ctx){
 void Or(const LinkedInstruction& instr, FNctx& ctx){
     Value a1=pop(ctx.stack);
     Value a2=pop(ctx.stack);
-    bool v1=getVariantOrThrow<bool>(a1,ctx.id);
-    bool v2=getVariantOrThrow<bool>(a2,ctx.id);
+    bool v1=getVariantOrThrow<bool>(a1);
+    bool v2=getVariantOrThrow<bool>(a2);
     bool ret=v1||v2;
     ctx.stack.push_back(mkValue(ret));
     return;
 }
 void Coerce(const LinkedInstruction& instr, FNctx& ctx){
     Value a=pop(ctx.stack);
-    Value coerced=coerce(a,static_cast<ValueType>(instr.operand),ctx.id);
+    Value coerced=coerce(a,static_cast<ValueType>(instr.operand));
     ctx.stack.push_back(coerced);
     return;
 }
 void Typeof(const LinkedInstruction& instr, FNctx& ctx){
     Value a=pop(ctx.stack);
-    std::string typestring=ValueTypeAsString.at(a.type);
+    const std::string& typestring=ValueTypeAsString.at(a.type);
     ctx.stack.push_back(mkValue(typestring));
     return;
 }
@@ -694,12 +694,12 @@ void IsNull(const LinkedInstruction& instr, FNctx& ctx){
 std::unordered_map<uint64_t,size_t> resolveLabelsInsideFunction(LinkedPropFunction& fn){
     std::unordered_map<uint64_t,size_t> labelOffsets;
     std::vector<LinkedInstruction> newFn;
-    for (size_t i = 0; i < fn.code.size(); i++) {
-        if (static_cast<Opcode>(fn.code[i].opcode)==Opcode::JumpLabel) {
-            if (labelOffsets.contains(fn.code[i].operand)) throw std::runtime_error("Duplicate label");
-            labelOffsets.emplace(fn.code[i].operand,newFn.size());
+    for (auto & i : fn.code) {
+        if (static_cast<Opcode>(i.opcode)==Opcode::JumpLabel) {
+            if (labelOffsets.contains(i.operand)) throw std::runtime_error("Duplicate label");
+            labelOffsets.emplace(i.operand,newFn.size());
         } else {
-            newFn.push_back(fn.code[i]);
+            newFn.push_back(i);
         }
     }
     fn.code=std::move(newFn);
