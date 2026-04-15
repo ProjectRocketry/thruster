@@ -5,6 +5,10 @@ struct ExecutionError {
     uint64_t func_id;
     std::string message;
 };
+struct ExecError {
+    ExecError(std::string msg) : message(msg) {}
+    std::string message;
+};
 struct FrozenFunction {
 	LinkedPropFunction function;
 	std::unordered_map<uint64_t,size_t> labelOffsets;

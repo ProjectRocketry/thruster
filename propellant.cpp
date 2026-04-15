@@ -22,7 +22,7 @@ using Null=std::monostate;
 Value executeFunction(uint64_t id, std::vector<Value> args, std::map<uint64_t,LinkedPropFunction>& functions, std::map<uint64_t,std::string>& stringTable);
 Value pop(Stack& v) {
     if (v.empty()) {
-        throw std::runtime_error("pop from empty vector");
+        throw ExecError("pop from empty vector");
     }
     Value val = std::move(v.back()); // move if possible
     v.pop_back();                 // remove last element
@@ -46,7 +46,7 @@ T getVariantOrThrow(const Value& arg, uint64_t id){
     try {
         return std::get<T>(arg.value);
     } catch (std::bad_variant_access& e){
-        throw ExecutionError(id, "Stack top has type "+ValueTypeAsString.at(arg.type)+", expected type "+ValueTypeAsString.at(static_cast<ValueType>(arg.value.index()))+".");
+        throw ExecutionError(id, "Tried to access variant: Stack top has type "+ValueTypeAsString.at(arg.type)+", expected type "+ValueTypeAsString.at(static_cast<ValueType>(arg.value.index()))+".");
     }
 }
 template <Numeric T, Numeric N>
@@ -117,8 +117,9 @@ std::vector<Value> resolveArgsForCall(std::vector<ValueType>& argTypes, FNctx& c
     size_t i=0;
     for (ValueType& argtype : argTypes){
         Value top=pop(ctx.stack);
-        if (top.type==ValueType::Null){
+        if (argtype==ValueType::Null){
             temp.push_back(top);
+            ret.push_back(Value{ValueType::Null,std::monostate{}});//pushes a null to adjust arg indexes
             i++;
         } else if (top.type!=argtype && argtype!=ValueType::Any) {
             throw ExecutionError(ctx.id,"Stack top has type "+ValueTypeAsString.at(top.type)+", expected type "+ValueTypeAsString.at(argtype)+".");
@@ -202,7 +203,7 @@ bool valuesEqual(Value& a1, Value& a2, uint64_t id){
 /* VM helpers */
 void jumpTo(uint64_t label, FNctx& ctx){
     try {
-        ctx.pc=ctx.func.labelOffsets.at(label);
+        ctx.pc=ctx.func.labelOffsets.at(label)-1;//to account for the ctx.pc++ at the end of the loop
     } catch (std::out_of_range& e){
         throw ExecutionError(ctx.id,"Label not found");
     }
@@ -727,21 +728,26 @@ Value executeFunction(uint64_t id, std::vector<Value> args, std::map<uint64_t,Li
     stack.id=id;
     FNctx ctx{func,stack,args,functions,stringTable,i,{},id};
     while (ctx.pc<func.function.code.size()){
+        std::cout << "pc: " << ctx.pc << "\n";
         LinkedInstruction instr=func.function.code[ctx.pc];
-        switch (static_cast<Opcode>(instr.opcode)){
-#define GENERATE_CASE(OP, CODE, STR, OPERAND, UNUSED1, UNUSED2, RET) \
-            case Opcode::OP: { \
-                if constexpr (Opcode::OP==Opcode::Return){ \
-                    return Return(instr,ctx); \
-                } else { \
-                    OP(instr,ctx); \
-                    break; \
-                } \
-            } 
-            OPCODE_LIST(GENERATE_CASE)
-#undef GENERATE_CASE
-            default:
-                throw ExecutionError(id,"Unknown opcode 0x"+std::to_string(instr.opcode));
+        try {
+            switch (static_cast<Opcode>(instr.opcode)){
+    #define GENERATE_CASE(OP, CODE, STR, OPERAND, UNUSED1, UNUSED2, RET) \
+                case Opcode::OP: { \
+                    if constexpr (Opcode::OP==Opcode::Return){ \
+                        return Return(instr,ctx); \
+                    } else { \
+                        OP(instr,ctx); \
+                        break; \
+                    } \
+                } 
+                OPCODE_LIST(GENERATE_CASE)
+    #undef GENERATE_CASE
+                default:
+                    throw ExecutionError(id,"Unknown opcode 0x"+std::to_string(instr.opcode));
+            }
+        } catch (const ExecError& e){
+            throw ExecutionError(id,e.message + " at instruction "+std::to_string(ctx.pc)+" of type "+opcodeEntryFor(static_cast<Opcode>(instr.opcode)).primary+", stack has "+std::to_string(ctx.stack.size())+" items");
         }
         ctx.pc++;
     }

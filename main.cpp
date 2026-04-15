@@ -10,6 +10,7 @@
 #include <fstream>
 #include "propellant.h"
 #include <format>
+#include <filesystem>
 //Make PPTR header available
 //some trash for Windows :(
 #if defined(_MSC_VER)
@@ -22,9 +23,9 @@
 #else
     #error "Unsupported compiler for custom section"
 #endif
-SECTION_SEA alignas(8) volatile uint64_t PPTR SECTION_USED=0x7F7F7F7F7F7F7F7F;
+SECTION_SEA alignas(8) volatile uint64_t PPTR SECTION_USED=0x7a7a7a7a7a7a7a7a;
 SECTION_SEA alignas(8) volatile uint64_t FLAGS SECTION_USED=0xACACACACACACACAC;
-uint64_t orig_PPTR=0x7F7F7F7F7F7F7F7F;
+uint64_t orig_PPTR=0x7a7a7a7a7a7a7a7a;
 enum Flags : uint64_t {
     FLAG_USERMODE=1<<0
 };
@@ -110,6 +111,7 @@ void patch_self(PatchOpts& opts){
     std::streampos posEnd=output.tellp();
     output.flush();
     output.close();
+    std::filesystem::permissions(outputPath,std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec, std::filesystem::perm_options::add);
     self.close();
     prop.close();
     FileReader outRW;
@@ -151,7 +153,11 @@ void executePropellantWrapper(PropellantLoadData& data, std::span<std::string> a
 int main(int argc,char** argv){
     std::vector<std::string> args_raw(argv, argv+ argc);
     std::span<std::string> args(args_raw);
+    bool print_sea_data=get_env("THRUSTER_SEADATA").has_value();
     bool debug_mode=get_env("THRUSTER_DEBUGSYM").has_value();
+    if (print_sea_data){
+        std::cerr << std::format("SEA data:\n\tPPTR: {:#x}, orig_PPTR: {:#x}\n\tFLAGS: {:#x}", PPTR, orig_PPTR, FLAGS) << std::endl;
+    }
     if (!hasFlag(Flags::FLAG_USERMODE)){
         int fuelIndex=indexOfVector(args,(std::string)"--fuel");
         if (fuelIndex!=-1){
